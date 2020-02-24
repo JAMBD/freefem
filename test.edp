@@ -1,0 +1,64 @@
+//Parameters
+real Rho = 8000.;		//Density
+real E = 210.e9;		//Young modulus
+real Nu = 0.27;			//Poisson ratio
+
+real Gravity = -9.81 * 0;	//Gravity
+
+//Mesh
+real nn = 10;			//Mesh quality
+real L = 20.;			//Beam length
+real H = 1.;			//Beam height
+int Fixed = 1;			//Beam fixed label
+int Free = 2;			//Beam free label
+int Force = 3;			//Beam force label
+int Force2 = 4;			//Beam force label
+border b1(t=-L/2, L/2){x=t; y=-H/2; label=Free;};
+border b2(t=-H/2., H/2){x=L/2; y=t; label=Force2;};
+border b3(t=-L/2., L/2){x=-t; y=H/2; label=Free;};
+border b4(t=-H/2, H/2){x=-L/2.; y=-t; label=Force;};
+border b(t=0, 2*pi){x=0.3*cos(t); y=0.3*sin(t); label=Fixed;}
+int nnL = max(2., nn*L);
+int nnH = max(2., nn*H);
+mesh Th = buildmesh(b1(nnL) + b2(nnH) + b3(nnL) + b4(nnH) + b(20));
+
+//Fespace
+func Pk = P2;
+fespace Uh(Th, [Pk, Pk]);
+Uh [ux, uy];
+
+//Macro
+real sqrt2 = sqrt(2.);
+macro Epsilon(ux, uy) [dx(ux), dy(uy), (dy(ux)+dx(uy))/sqrt2] //
+macro Divergence(ux, uy) (dx(ux) + dy(uy)) //
+
+//Problem
+real Mu = E/(2.*(1.+Nu));
+real Lambda = E*Nu/((1.+ Nu)*(1.-2.*Nu));
+
+varf vElasticity ([ux,uy], [vx, vy])
+	= int2d(Th)(
+		  Lambda * Divergence(vx, vy) * Divergence(ux, uy)
+		+ 2. * Mu * (
+			  Epsilon(vx, vy)' * Epsilon(ux, uy)
+		)
+	)
+	+ int1d(Th, Force2)(
+		 500000 * vy
+	)
+	+ int2d(Th)(
+		  Rho * Gravity * vy
+	)
+	+ on(Fixed, ux=0, uy=0)
+	;
+
+matrix<real> Elasticity = vElasticity(Uh, Uh, solver=sparsesolver);
+real[int] ElasticityBoundary = vElasticity(0, Uh);
+ux[] = Elasticity^-1 * ElasticityBoundary;
+
+//Movemesh
+Th = movemesh(Th, [x+ux * 100, y+uy * 100]);
+[ux, uy] = [ux, uy];
+
+//Plot
+plot([ux, uy], value=true, cmm="u", bb=[[-L/2, -H], [L/2, H]], aspectratio=true, boundary=true);
